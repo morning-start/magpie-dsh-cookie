@@ -4,7 +4,7 @@
   "description": "Look at and shrink the DSH desktop login cookies from a magpie dashboard, keeping the last N days you choose.",
   "type": "module",
   "main": "./index.ts",
-  "files": ["index.ts", "src", "page", "README.md", "DESIGN.md", "LICENSE"],
+  "files": ["index.ts", "src", "page", "README.md", "DESIGN.md", "CHANGELOG.md", "LICENSE"],
   "engines": { "bun": ">=1.2" },
   "scripts": {
     "test": "bun test",
@@ -13,6 +13,7 @@
   "keywords": ["magpie", "magpie-plugin", "opencode-plugin", "dsh", "cookie", "dashboard"],
   "license": "MIT",
   "magpie": {
+    "icon": "page/icon.svg",
     "page": {
       "title": "DSH Cookie",
       "titles": { "zh": "DSH Cookie 看板", "zh-TW": "DSH Cookie 看板" },

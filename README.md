@@ -1,4 +1,4 @@
-# DSH Cookie 看板（magpie 插件）
+# <img src="page/icon.svg" width="30" height="30" alt=""> DSH Cookie 看板（magpie 插件）
 
 在 [magpie](https://usemagpie.ai) 里看住并清理 **DeepSeek Harness（DSH）桌面版**的登录 cookie。
 

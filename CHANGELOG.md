@@ -21,7 +21,7 @@
 
 ### 入口
 
-- magpie 页面（沙箱内，无网络，靠 `page/data.js` 快照 + 插件选项投递请求）；
+- magpie 页面（沙箱内，无网络，靠 `page/data.js` 快照 + 插件选项投递请求），带 cookie + 请求头占用环图标；
 - Agent 工具：`dsh_cookie_status`、`dsh_cookie_prune`（默认 dry-run）、`dsh_cookie_config`；
 - 离线 CLI：`status` / `plan` / `prune` / `config` / `backups`，支持 `--json`。
 
