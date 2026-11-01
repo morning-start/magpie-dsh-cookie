@@ -1,22 +1,42 @@
 {
   "name": "magpie-dsh-cookie",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Look at and shrink the DSH desktop login cookies from a magpie dashboard, keeping the last N days you choose.",
   "type": "module",
   "main": "./index.ts",
-  "files": ["index.ts", "src", "page", "README.md", "DESIGN.md", "CHANGELOG.md", "LICENSE"],
-  "engines": { "bun": ">=1.2" },
+  "files": [
+    "index.ts",
+    "src",
+    "page",
+    "README.md",
+    "DESIGN.md",
+    "CHANGELOG.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "bun": ">=1.2"
+  },
   "scripts": {
     "test": "bun test",
     "cli": "bun src/cli.ts"
   },
-  "keywords": ["magpie", "magpie-plugin", "opencode-plugin", "dsh", "cookie", "dashboard"],
+  "keywords": [
+    "magpie",
+    "magpie-plugin",
+    "opencode-plugin",
+    "dsh",
+    "cookie",
+    "dashboard"
+  ],
   "license": "MIT",
   "magpie": {
-    "icon": "page/icon.svg",
+    "icon": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA2NCA2NCIgd2lkdGg9IjY0IiBoZWlnaHQ9IjY0IiByb2xlPSJpbWciIGFyaWEtbGFiZWw9IkRTSCBDb29raWUg55yL5p2/Ij4KICA8dGl0bGU+RFNIIENvb2tpZSDnnIvmnb88L3RpdGxlPgogIDxyZWN0IHg9IjIiIHk9IjIiIHdpZHRoPSI2MCIgaGVpZ2h0PSI2MCIgcng9IjE2IiBmaWxsPSIjMGYzZDNhIi8+CiAgPCEtLSDor7fmsYLlpLTljaDnlKjnjq/vvJrlupXnjq8gKyDnuqYgNzAlIOmrmOS6riAtLT4KICA8Y2lyY2xlIGN4PSIzMiIgY3k9IjMyIiByPSIyMiIgZmlsbD0ibm9uZSIgc3Ryb2tlPSIjMmRkNGJmIiBzdHJva2Utb3BhY2l0eT0iMC4yMiIgc3Ryb2tlLXdpZHRoPSI0Ii8+CiAgPGNpcmNsZSBjeD0iMzIiIGN5PSIzMiIgcj0iMjIiIGZpbGw9Im5vbmUiIHN0cm9rZT0iIzJkZDRiZiIgc3Ryb2tlLXdpZHRoPSI0IiBzdHJva2UtbGluZWNhcD0icm91bmQiCiAgICAgICAgICBzdHJva2UtZGFzaGFycmF5PSI5NyA0MiIgdHJhbnNmb3JtPSJyb3RhdGUoLTkwIDMyIDMyKSIvPgogIDwhLS0gY29va2llIOacrOS9k++8jOWPs+S4iuinkuWSrOS4gOWPoyAtLT4KICA8Y2lyY2xlIGN4PSIzMiIgY3k9IjMyIiByPSIxNSIgZmlsbD0iI2Y2ZTdjOCIvPgogIDxjaXJjbGUgY3g9IjQ1IiBjeT0iMTkiIHI9IjYuNSIgZmlsbD0iIzBmM2QzYSIvPgogIDwhLS0g5ben5YWL5Yqb6LGGIC0tPgogIDxjaXJjbGUgY3g9IjI3IiBjeT0iMjciIHI9IjIuOCIgZmlsbD0iIzdhNGEyMiIvPgogIDxjaXJjbGUgY3g9IjM2IiBjeT0iMzEiIHI9IjIuMiIgZmlsbD0iIzdhNGEyMiIvPgogIDxjaXJjbGUgY3g9IjI5IiBjeT0iMzgiIHI9IjIuNCIgZmlsbD0iIzdhNGEyMiIvPgogIDxjaXJjbGUgY3g9IjM4IiBjeT0iMzkiIHI9IjEuOCIgZmlsbD0iIzdhNGEyMiIvPgo8L3N2Zz4K",
     "page": {
       "title": "DSH Cookie",
-      "titles": { "zh": "DSH Cookie 看板", "zh-TW": "DSH Cookie 看板" },
+      "titles": {
+        "zh": "DSH Cookie 看板",
+        "zh-TW": "DSH Cookie 看板"
+      },
       "file": "page/index.html",
       "icon": "page/icon.svg"
     }
