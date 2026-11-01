@@ -1,8 +1,13 @@
 # 更新记录
 
-## 0.1.0 — 2026-11-02
+## 0.2.0 — 2026-11-02
 
-首个可用版本。
+首个对外发布版本。相对内部 0.1.0：补上插件图标与页面 favicon，版本号升到 0.2.0。
+
+### 相比 0.1.0
+
+- 新增 `page/icon.svg`（cookie + 请求头占用环），`magpie.icon`、`magpie.page.icon` 与页面 favicon 都指向它；
+- README 标题带图标；CHANGELOG 按版本整理。
 
 ### 看
 
@@ -21,7 +26,7 @@
 
 ### 入口
 
-- magpie 页面（沙箱内，无网络，靠 `page/data.js` 快照 + 插件选项投递请求），带 cookie + 请求头占用环图标；
+- magpie 页面（沙箱内，无网络，靠 `page/data.js` 快照 + 插件选项投递请求）；
 - Agent 工具：`dsh_cookie_status`、`dsh_cookie_prune`（默认 dry-run）、`dsh_cookie_config`；
 - 离线 CLI：`status` / `plan` / `prune` / `config` / `backups`，支持 `--json`。
 
@@ -43,3 +48,7 @@
 - 借句柄只验证过 Windows x64；ARM64 Windows 未验证；
 - macOS/Linux 的写库路径未在真机验证（逻辑用注入的进程判定与合成库覆盖）；
 - 队列依赖 magpie 常驻；magpie 与 DSH 都退出时不会执行，需下次打开 magpie 或跑 CLI。
+
+## 0.1.0 — 2026-11-02
+
+内部开发版（未单独发布）：完成看、压、排队、Agent 工具与离线 CLI；跨平台读库与路径脱敏。
