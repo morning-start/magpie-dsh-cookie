@@ -1,0 +1,177 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>DSH Cookie 看板</title>
+<link rel="stylesheet" href="style.css">
+<script src="_magpie/bridge.js"></script>
+<script src="data.js"></script>
+<script src="demo.js"></script>
+<script src="charts.js"></script>
+<script src="app.js" defer></script>
+</head>
+<body>
+
+<header class="top">
+  <div class="top-main">
+    <h1>DSH Cookie 看板</h1>
+    <p class="sub">DeepSeek Harness 桌面版每次启动都往 cookie 库写一条登录凭据；请求头上限 16 KiB，约第 72 条时桌面端登录会被 431 挡掉。</p>
+  </div>
+  <div class="chips">
+    <span class="chip" id="chip-dsh" data-tone="unknown">
+      <i class="dot" aria-hidden="true"></i><span id="chip-dsh-text">正在读取</span>
+    </span>
+    <span class="chip chip-quiet" id="chip-time">—</span>
+    <button type="button" class="linky" id="refresh-btn" data-action="refresh">重新探测</button>
+  </div>
+</header>
+
+<p class="note" id="note" role="status" aria-live="polite" hidden></p>
+
+<main id="main">
+
+  <section class="card gauge" id="gauge" aria-labelledby="gauge-h">
+    <div class="card-head">
+      <h2 id="gauge-h">请求头占用</h2>
+      <p class="hint" id="gauge-source">—</p>
+    </div>
+
+    <div class="gauge-main">
+      <div class="hero">
+        <p class="hero-line">
+          <span class="hero-num" id="hero-count">—</span><span class="hero-unit">/ 72 条</span>
+        </p>
+        <p class="hero-cap">一条 228 字节 · 第 72 条触发崩溃线</p>
+      </div>
+      <dl class="stats">
+        <div class="stat">
+          <dt>条数</dt>
+          <dd><span id="stat-count">—</span><span class="sub" id="stat-count-sub">条</span></dd>
+        </div>
+        <div class="stat">
+          <dt>请求头字节</dt>
+          <dd><span id="stat-bytes">—</span><span class="sub" id="stat-bytes-sub"></span></dd>
+        </div>
+        <div class="stat">
+          <dt>还能启动</dt>
+          <dd><span id="stat-launches">—</span><span class="sub" id="stat-launches-sub">次</span></dd>
+        </div>
+      </dl>
+    </div>
+
+    <div class="scale" id="scale" aria-hidden="true"></div>
+    <ul class="legend">
+      <li><i class="swatch swatch-ok" aria-hidden="true"></i>1–35 条 正常</li>
+      <li><i class="swatch swatch-warn" aria-hidden="true"></i>36–70 条 该清了</li>
+      <li><i class="swatch swatch-danger" aria-hidden="true"></i>71–72 条 危险</li>
+    </ul>
+
+    <p class="gauge-sentence" id="gauge-text">正在读取 DSH 的 cookie 库…</p>
+    <p class="gauge-error" id="gauge-error" role="alert" hidden></p>
+    <p class="dbline" id="dbline"></p>
+  </section>
+
+  <div class="grid-2">
+    <section class="card" aria-labelledby="days-h">
+      <div class="card-head">
+        <h2 id="days-h">按创建日期</h2>
+        <p class="hint" id="days-hint">最近 30 天</p>
+      </div>
+      <p class="readout" id="days-readout">把指针移到柱子上，或点一下，看具体日期与条数</p>
+      <div class="chart" id="days-chart"></div>
+      <p class="chart-note" id="days-note"></p>
+    </section>
+
+    <section class="card" aria-labelledby="hist-h">
+      <div class="card-head">
+        <h2 id="hist-h">历史趋势</h2>
+        <p class="hint" id="hist-hint">每日快照</p>
+      </div>
+      <p class="readout" id="hist-readout">把指针移到柱子上，或点一下，看具体日期与条数</p>
+      <div class="chart" id="hist-chart"></div>
+      <p class="chart-note" id="hist-note"></p>
+    </section>
+  </div>
+
+  <div class="grid-2">
+    <section class="card" aria-labelledby="keep-h">
+      <div class="card-head">
+        <h2 id="keep-h">保留策略</h2>
+        <p class="hint">只作用于 dsh-auth-*</p>
+      </div>
+      <form class="keep-form" id="config-form" novalidate>
+        <div class="field">
+          <label for="keep-days">保留最近</label>
+          <span class="field-row">
+            <input id="keep-days" name="keepDays" type="number" inputmode="numeric" min="1" max="90" step="1" value="7" autocomplete="off">
+            <span class="unit">天</span>
+          </span>
+        </div>
+        <div class="field">
+          <label for="keep-max">最多保留</label>
+          <span class="field-row">
+            <input id="keep-max" name="keepMax" type="number" inputmode="numeric" min="1" max="72" step="1" value="40" autocomplete="off">
+            <span class="unit">条</span>
+          </span>
+        </div>
+        <button type="submit" class="btn btn-primary" id="save-btn">保存设置</button>
+      </form>
+      <p class="form-error" id="keep-error" role="alert" hidden></p>
+      <p class="fine">默认保留 7 天、最多 40 条；天数管「旧」，条数管「多」。不管怎么设，最新一条永远保留。</p>
+    </section>
+
+    <section class="card" aria-labelledby="prune-h">
+      <div class="card-head">
+        <h2 id="prune-h">清理</h2>
+        <p class="hint" id="prune-hint">先预演，确认后再执行</p>
+      </div>
+
+      <dl class="preview" id="preview" hidden>
+        <div><dt>将删除</dt><dd id="pv-remove">—</dd></div>
+        <div><dt>清理后保留</dt><dd id="pv-keep">—</dd></div>
+        <div><dt>截止时间</dt><dd class="small" id="pv-cutoff">—</dd></div>
+        <div><dt>释放请求头</dt><dd class="small" id="pv-bytes">—</dd></div>
+      </dl>
+      <p class="preview-empty" id="preview-empty">还没有预演结果。先点「预演清理」，它只算不删。</p>
+
+      <div class="pending" id="pending" hidden>
+        <p id="pending-text"></p>
+        <button type="button" class="btn btn-small" id="cancel-btn" data-action="cancel-pending">取消安排</button>
+      </div>
+
+      <div class="actions">
+        <button type="button" class="btn btn-soft" id="plan-btn" data-action="plan">预演清理</button>
+        <button type="button" class="btn btn-danger" id="prune-btn" data-action="prune">执行清理</button>
+      </div>
+      <p class="fine" id="prune-fine"></p>
+    </section>
+  </div>
+
+  <section class="card" aria-labelledby="result-h">
+    <div class="card-head">
+      <h2 id="result-h">最近一次清理</h2>
+      <p class="hint" id="result-hint"></p>
+    </div>
+    <p class="result-body" id="result-body">还没有清理记录。第一次预演或执行之后，结果会留在这里。</p>
+    <dl class="result-dl" id="result-dl" hidden>
+      <div><dt>结果</dt><dd><span class="badge" id="res-status">—</span></dd></div>
+      <div><dt>删除</dt><dd id="res-removed">—</dd></div>
+      <div><dt>库里剩余</dt><dd id="res-remaining">—</dd></div>
+      <div><dt>备份文件</dt><dd class="body" id="res-backup">—</dd></div>
+      <div class="wide" id="res-error-row" hidden><dt>失败原因</dt><dd class="body bad" id="res-error"></dd></div>
+    </dl>
+    <p class="backups-line" id="res-backups"></p>
+  </section>
+
+</main>
+
+<footer class="foot">
+  <p class="path"><span class="k">库路径</span><code id="db-path">—</code></p>
+  <p class="path"><span class="k">备份目录</span><code>~/.config/magpie/dsh-cookie/backups/</code>　每次写库前整库复制一份，保留最近 10 份。</p>
+  <p class="privacy">只统计条数与创建时间，不读取、不打印、不上传 cookie 值。清理只删 dsh-auth-*，同一库里其它 cookie 不动。</p>
+</footer>
+
+</body>
+</html>
