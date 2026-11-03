@@ -1,6 +1,6 @@
 {
   "name": "magpie-dsh-cookie",
-  "version": "0.2.2",
+  "version": "0.2.1",
   "description": "Look at and shrink the DSH desktop login cookies from a magpie dashboard, keeping the last N days you choose.",
   "type": "module",
   "main": "./index.ts",
