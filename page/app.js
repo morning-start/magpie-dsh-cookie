@@ -38,6 +38,9 @@
     lastSet: 0,
     daySig: "",
     histSig: "",
+    // 保留策略表单：用户改过但还没保存时，轮询不许覆盖输入框
+    configDirty: false,
+    configSaved: null,
   };
 
   /* ────────────────────────── 小工具 ────────────────────────── */
@@ -426,6 +429,25 @@
 
   /* ────────────────────────── 保留策略 ────────────────────────── */
 
+  /** page/config.js 没载入时的兜底（范围与 src/retention.ts 一致）。 */
+  var CONFIG_FALLBACK = {
+    parseForm: function (daysText, maxText) {
+      var days = Number(String(daysText).trim());
+      var max = Number(String(maxText).trim());
+      if (daysText === "" || maxText === "" || !Number.isInteger(days) || !Number.isInteger(max) || days < 0 || days > 90 || max < 1 || max > 72) {
+        return { ok: false, errors: ["「保留最近」填 0–90 之间的整数天；「最多保留」填 1–72 之间的整数条"] };
+      }
+      return { ok: true, config: { keepDays: days, keepMax: max }, errors: [] };
+    },
+    same: function (left, right) {
+      return !!left && !!right && left.keepDays === right.keepDays && left.keepMax === right.keepMax;
+    },
+  };
+
+  function configKit() {
+    return globalThis.DSHCookieConfig || CONFIG_FALLBACK;
+  }
+
   function setInputValue(id, value) {
     var input = el(id);
     if (!input || !has(value)) return;
@@ -434,24 +456,115 @@
     if (input.value !== next) input.value = next;
   }
 
+  /** 快照里「已保存」的保留策略；还没读到就是 null。 */
+  function configOf(view) {
+    var cfg = view ? view.config : null;
+    if (!cfg) return null;
+    var days = firstNum(cfg.keepDays);
+    var max = firstNum(cfg.keepMax);
+    if (days === null || max === null) return null;
+    return { keepDays: days, keepMax: max };
+  }
+
+  function readConfigForm() {
+    return {
+      keepDays: String(el("keep-days") ? el("keep-days").value : ""),
+      keepMax: String(el("keep-max") ? el("keep-max").value : ""),
+    };
+  }
+
+  /** 正在等「保存设置」的回报。 */
+  function savingConfig() {
+    return state.busySince > 0 && state.busyAction === "config";
+  }
+
+  /**
+   * 保留策略卡片。
+   *
+   * 硬规矩：**页面每 5 秒重读一次 data.js，但绝不覆盖用户正在填的/刚提交的值。**
+   * magpie 收到 options.set 后要重启插件（Windows 首次借句柄约 4 秒），这期间页面读到的
+   * 还是旧快照；以前这里无条件把旧 config 写回输入框，用户看到的就成了「改完又变回
+   * 默认的 7 天 / 40 条」，像是默认值被固定住、改不了。
+   */
   function renderConfig(view) {
-    var cfg = (view && view.config) || {};
-    setInputValue("keep-days", firstNum(cfg.keepDays, 7));
-    setInputValue("keep-max", firstNum(cfg.keepMax, 40));
+    var saved = configOf(view);
+    if (saved) state.configSaved = saved;
+
+    if (!state.configDirty && !savingConfig() && state.configSaved) {
+      setInputValue("keep-days", state.configSaved.keepDays);
+      setInputValue("keep-max", state.configSaved.keepMax);
+    }
+    renderConfigState();
+  }
+
+  /** 「已保存 / 有未保存的修改 / 正在保存」这行小字。 */
+  function renderConfigState() {
+    var saved = state.configSaved;
+    var saving = savingConfig();
+    var dirty = state.configDirty;
+    var undo = el("keep-undo");
+    if (undo) undo.hidden = !dirty || saving;
+    // 保存中不许再改：回报一到就会按服务器配置对齐，改了就白改
+    ["keep-days", "keep-max"].forEach(function (id) {
+      var input = el(id);
+      if (input) input.disabled = saving;
+    });
+
+    var text;
+    if (saving) {
+      text = "正在保存：magpie 要重启插件，几秒后才回报；这期间你填的数不会被页面改掉。";
+    } else if (dirty) {
+      text = "有未保存的修改";
+      if (saved) {
+        text += "（已保存的是最近 " + fmtInt(saved.keepDays) + " 天 / 最多 " + fmtInt(saved.keepMax) + " 条）";
+      }
+      text += "，点「保存设置」写进插件。";
+    } else if (saved) {
+      text = "已保存：保留最近 " + fmtInt(saved.keepDays) + " 天 / 最多 " + fmtInt(saved.keepMax) + " 条；最新一条永远保留。";
+    } else {
+      text = "还没读到已保存的策略；先按 7 天 / 40 条显示，点「保存设置」会写进插件。";
+    }
+
+    var box = el("keep-state");
+    if (box) {
+      box.textContent = text;
+      box.dataset.kind = saving ? "saving" : dirty ? "dirty" : "saved";
+    }
+  }
+
+  /** 输入框一改就标记未保存；手动改回已保存的值则撤销标记。 */
+  function markConfigDirty() {
+    var form = readConfigForm();
+    var parsed = configKit().parseForm(form.keepDays, form.keepMax);
+    state.configDirty = !(parsed.ok && configKit().same(parsed.config, state.configSaved));
+    showFormError("");
+    renderConfigState();
+  }
+
+  /** 撤销未保存的修改，回到已保存的值。 */
+  function restoreConfig() {
+    var saved = state.configSaved;
+    state.configDirty = false;
+    showFormError("");
+    if (saved) {
+      setInputValue("keep-days", saved.keepDays);
+      setInputValue("keep-max", saved.keepMax);
+    }
+    renderConfigState();
   }
 
   function saveConfig() {
-    var days = Number(String(el("keep-days").value).trim());
-    var max = Number(String(el("keep-max").value).trim());
-    var errs = [];
-    if (!Number.isInteger(days) || days < 1 || days > 90) errs.push("「保留最近」填 1–90 之间的整数天");
-    if (!Number.isInteger(max) || max < 1 || max > 72) errs.push("「最多保留」填 1–72 之间的整数条");
-    if (errs.length) {
-      showFormError(errs.join("；") + "。");
+    var form = readConfigForm();
+    var parsed = configKit().parseForm(form.keepDays, form.keepMax);
+    if (!parsed.ok) {
+      showFormError(parsed.errors.join("；") + "。");
       return;
     }
     showFormError("");
-    submit("config", { config: { keepDays: days, keepMax: max } });
+    // 提交后先钉住用户的值：回报之前读到的是旧快照，不许动这两个框。
+    state.configDirty = true;
+    renderConfigState();
+    submit("config", { config: parsed.config });
   }
 
   /* ────────────────────────── 清理卡 ────────────────────────── */
@@ -605,6 +718,7 @@
     state.pendingId = id;
     syncButtons();
     showNote("已提交「" + labelOf(action) + "」，等插件执行后回报…");
+    if (action === "config") renderConfigState();
 
     var send = function () {
       state.lastSet = Date.now();
@@ -622,6 +736,7 @@
           state.busyAction = null;
           state.pendingId = null;
           syncButtons();
+          if (action === "config") renderConfigState();
           showNote("提交失败：" + (err && err.message ? err.message : String(err)), true);
         });
     };
@@ -645,10 +760,19 @@
   function checkBusyTimeout() {
     if (!state.busySince) return;
     if (Date.now() - state.busySince < BUSY_TIMEOUT) return;
+    var action = state.busyAction;
     state.busySince = 0;
     state.busyAction = null;
     state.pendingId = null;
-    showNote("插件没有在 " + Math.round(BUSY_TIMEOUT / 1000) + " 秒内回报；它可能还在处理，页面会继续每 5 秒自己刷新。", true);
+    if (action === "config") {
+      showNote(
+        "「保存设置」超过 " + Math.round(BUSY_TIMEOUT / 1000) + " 秒没有回报：magpie 可能没重启插件。你填的数仍留在框里（没被改回默认值）；点「重新探测」看看，或再点一次「保存设置」。",
+        true,
+      );
+      renderConfigState();
+    } else {
+      showNote("插件没有在 " + Math.round(BUSY_TIMEOUT / 1000) + " 秒内回报；它可能还在处理，页面会继续每 5 秒自己刷新。", true);
+    }
   }
 
   function handleReply(view) {
@@ -660,8 +784,10 @@
     var label = labelOf(reply.action);
     if (reply.ok === false) {
       showNote("「" + label + "」失败：" + (reply.message ? String(reply.message) : "插件没给出原因。"), true);
+      // 保留「未保存」状态：值还在框里，改完可以直接再存一次
     } else {
       showNote(reply.message ? String(reply.message) : label + "完成。");
+      if (reply.action === "config") state.configDirty = false;
     }
   }
 
@@ -712,11 +838,12 @@
     renderGauge(view);
     renderDays(view);
     renderHistory(view);
+    // 先消化回报（会解除「未保存」），再画表单，输入框才不会慢一拍
+    handleReply(view);
     renderConfig(view);
     renderPrune(view);
     renderResult(view);
     renderFooter(view);
-    handleReply(view);
     syncButtons();
   }
 
@@ -749,8 +876,12 @@
     ["keep-days", "keep-max"].forEach(function (id) {
       var input = el(id);
       if (!input) return;
-      input.addEventListener("input", function () { showFormError(""); });
+      input.addEventListener("input", function () { markConfigDirty(); });
+      input.addEventListener("change", function () { markConfigDirty(); });
     });
+
+    var undo = el("keep-undo");
+    if (undo) undo.addEventListener("click", restoreConfig);
 
     wireReadout(el("days-chart"), el("days-readout"));
     wireReadout(el("hist-chart"), el("hist-readout"));

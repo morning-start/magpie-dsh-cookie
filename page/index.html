@@ -10,6 +10,7 @@
 <script src="_magpie/bridge.js"></script>
 <script src="data.js"></script>
 <script src="demo.js"></script>
+<script src="config.js"></script>
 <script src="charts.js"></script>
 <script src="app.js" defer></script>
 </head>
@@ -106,7 +107,7 @@
         <div class="field">
           <label for="keep-days">保留最近</label>
           <span class="field-row">
-            <input id="keep-days" name="keepDays" type="number" inputmode="numeric" min="1" max="90" step="1" value="7" autocomplete="off">
+            <input id="keep-days" name="keepDays" type="number" inputmode="numeric" min="0" max="90" step="1" value="7" autocomplete="off">
             <span class="unit">天</span>
           </span>
         </div>
@@ -120,7 +121,11 @@
         <button type="submit" class="btn btn-primary" id="save-btn">保存设置</button>
       </form>
       <p class="form-error" id="keep-error" role="alert" hidden></p>
-      <p class="fine">默认保留 7 天、最多 40 条；天数管「旧」，条数管「多」。不管怎么设，最新一条永远保留。</p>
+      <div class="keep-status">
+        <p class="fine" id="keep-state" data-kind="saved">—</p>
+        <button type="button" class="linky" id="keep-undo" hidden>撤销修改</button>
+      </div>
+      <p class="fine">天数管「旧」（0–90，0 = 不按天数删），条数管「多」（1–72）。不管怎么设，最新一条永远保留。</p>
     </section>
 
     <section class="card" aria-labelledby="prune-h">

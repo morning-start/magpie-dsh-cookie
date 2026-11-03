@@ -137,6 +137,21 @@ globalThis.DSH_COOKIE = {
 { "id": "m3k2-8f1a", "action": "refresh|plan|prune|cancel|cancel-pending|config", "config": { "keepDays": 7, "keepMax": 40 }, "at": 1793544000000 }
 ```
 
+### 5.1 快照是「只读回显」，用户输入优先（保留策略表单）
+
+页面每 5 秒重读一次 `page/data.js`，但**轮询只负责回显服务器状态，不许覆盖用户正在填的东西**。这条不变量是 0.2.2 修「默认值固定了、改不了」的根据：
+
+| 状态 | 输入框 |
+| --- | --- |
+| 用户改过、还没保存（dirty） | 保持用户的值；轮询不写、快照不写；状态行提示「有未保存的修改」并给「撤销修改」 |
+| 已点「保存设置」、还没回报（saving） | 锁定为提交的值（disabled），状态行「正在保存」；快照这期间还是旧的，绝不回写 |
+| 没改过 | 跟随快照里的 `config`（Agent 工具/CLI 改了策略，页面也会同步） |
+| 25 秒没回报 | 解除锁定、保留用户的值，明确提示「没被改回默认值」 |
+
+保存的闭环是：`options.set({...options, request})` → magpie 重启插件 → 插件 `setConfig()` 落 `state.json` → 重写 `data.js`（新的 `config` + `reply`）→ 页面看到 `reply.id` 对上才解除 dirty 并按快照对齐。**在 `reply` 到之前，任何一方都不该把旧 `config` 当成"用户想要的"**——这正是之前出问题的地方：插件重启要 4–8 秒，页面在这段时间里把旧配置写回输入框，用户看到的就是"改完又变回 7 天 / 40 条"。
+
+范围口径只有一份：`page/config.js`（浏览器）与 `src/retention.ts` 的 `normalizeConfig`（宿主/CLI/Agent 工具）都按 `keepDays 0–90`、`keepMax 1–72`；`bun test` 里有一条用例同时读 `page/index.html` 的 `min` / `max` 属性，防止两边再走偏。
+
 ## 6. 清理算法（写库那一步）
 
 ```
@@ -177,7 +192,7 @@ magpie-dsh-cookie/
 │   ├── dashboard.ts        # 组装快照、原子写 page/data.js
 │   ├── service.ts          # 编排：探测、缓存、请求、20s 定时
 │   └── cli.ts              # 离线命令行
-├── page/                   # 沙箱页面（index.html / app.js / style.css / data.js / icon.svg）
+├── page/                   # 沙箱页面（index.html / app.js / config.js / style.css / data.js / icon.svg）
 ├── test/                   # bun test
 ├── screenshots/            # 文档用截图（demo 数据，路径已脱敏）
 ├── types/                  # bun:ffi / bun:sqlite 的最小类型声明
@@ -220,4 +235,5 @@ magpie-dsh-cookie/
 - macOS/Linux 的读路径是 POSIX 直接读，逻辑与路径已用单测覆盖，但写库未在真机验证；
 - 首次借句柄在个别杀软/驱动环境下有一次约 4 秒延迟（本机 OpenProcess 首次 3.8 秒，之后 <2ms），所以结果缓存 60 秒，不参与高频轮询；
 - 队列依赖 magpie 常驻；magpie 与 DSH 都退出时不会执行，需要下次打开 magpie 或跑 CLI；
+- 页面回执最多滞后一个轮询周期（5 秒）：插件写完 `data.js` 后，页面要等下一次 5 秒轮询才看到 `reply`，加上 magpie 重启插件，点「保存设置」到状态行变成「已保存」通常要 5–10 秒；这段期间输入框锁定并显示「正在保存」，不会被旧快照改回默认值；
 - 后续可做：DSH 每次退出自动清理的守护模式、按 host 分组统计、清理前导出将被删除的 cookie 清单（只含名字与时间）。

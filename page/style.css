@@ -586,6 +586,30 @@ input[type="number"]:hover { border-color: var(--muted); }
   font-size: var(--fs-small);
 }
 
+/* 保留策略的「已保存 / 未保存 / 正在保存」状态行 */
+.keep-status {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 6px 12px;
+  flex-wrap: wrap;
+}
+
+.keep-status .fine {
+  margin-top: 10px;
+  flex: 1 1 220px;
+}
+
+.keep-status .linky {
+  margin-top: 4px;
+  flex: 0 0 auto;
+}
+
+#keep-state[data-kind="dirty"] { color: var(--amber); }
+#keep-state[data-kind="saving"] { color: var(--accent); }
+
+input[type="number"]:disabled { opacity: .55; cursor: progress; }
+
 .fine {
   margin-top: 10px;
   color: var(--muted);
