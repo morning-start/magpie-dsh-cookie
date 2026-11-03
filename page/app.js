@@ -873,11 +873,29 @@
       });
     }
 
+    // magpie 的插件页 iframe 是 sandbox="allow-scripts"，没有 allow-forms：
+    // 沙箱里的表单提交（type=submit 的按钮、输入框里按回车）会被浏览器直接拦掉，
+    // submit 事件根本不会触发。所以保存按钮必须是 type="button" + 自己的 click
+    // 监听，跟预演/清理那些按钮一样走点击——这也是之前「保存设置点了没反应」的根因。
+    var save = el("save-btn");
+    if (save) {
+      save.addEventListener("click", function (e) {
+        e.preventDefault();
+        saveConfig();
+      });
+    }
+
     ["keep-days", "keep-max"].forEach(function (id) {
       var input = el(id);
       if (!input) return;
       input.addEventListener("input", function () { markConfigDirty(); });
       input.addEventListener("change", function () { markConfigDirty(); });
+      input.addEventListener("keydown", function (e) {
+        if (e.key === "Enter") {
+          e.preventDefault();
+          saveConfig();
+        }
+      });
     });
 
     var undo = el("keep-undo");

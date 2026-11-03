@@ -80,7 +80,7 @@ DSH 运行期间 `Network/Cookies` 由 Chromium 掌管：Windows 上是**独占�
 
 ## 4. 页面沙箱约束（决定了架构）
 
-magpie 的插件页跑在 `sandbox="allow-scripts"` + `connect-src 'none'` 里：**没有 fetch、没有 WebSocket、没有内联脚本**。所以不能像普通前后端那样起个 HTTP 服务给页面调。可行且已被社区验证（`magpie-workbuddy-plus`）的路子是：
+magpie 的插件页跑在 `sandbox="allow-scripts"` 里（窗口侧的 iframe 属性就这么多，**没有 `allow-forms`**）：**没有 fetch、没有 WebSocket、没有内联脚本，而且表单提交会被浏览器直接拦掉**——`type="submit"` 的按钮在沙箱里点了连 `submit` 事件都不会触发。所以页面里的一切「提交」都必须走 `type="button"` + 点击监听（预演/清理/保存设置全是），写回数据走 `options.set`，由 magpie 重启插件执行。这是 0.2.2 修的「保存设置点了没反应」的根因。可行且已被社区验证（`magpie-workbuddy-plus`）的路子是：
 
 ```
 插件宿主（Bun，常驻）
@@ -148,7 +148,7 @@ globalThis.DSH_COOKIE = {
 | 没改过 | 跟随快照里的 `config`（Agent 工具/CLI 改了策略，页面也会同步） |
 | 25 秒没回报 | 解除锁定、保留用户的值，明确提示「没被改回默认值」 |
 
-保存的闭环是：`options.set({...options, request})` → magpie 重启插件 → 插件 `setConfig()` 落 `state.json` → 重写 `data.js`（新的 `config` + `reply`）→ 页面看到 `reply.id` 对上才解除 dirty 并按快照对齐。**在 `reply` 到之前，任何一方都不该把旧 `config` 当成"用户想要的"**——这正是之前出问题的地方：插件重启要 4–8 秒，页面在这段时间里把旧配置写回输入框，用户看到的就是"改完又变回 7 天 / 40 条"。
+保存的闭环是：`options.set({...options, request})` → magpie 重启插件 → 插件 `setConfig()` 落 `state.json` → 重写 `data.js`（新的 `config` + `reply`）→ 页面看到 `reply.id` 对上才解除 dirty 并按快照对齐。**在 `reply` 到之前，任何一方都不该把旧 `config` 当成"用户想要的"**——这正是之前出问题的地方：插件重启要 4–8 秒，页面在这段时间里把旧配置写回输入框，用户看到的就是"改完又变回 7 天 / 40 条"。另外沙箱拦表单提交（没有 `allow-forms`），「保存设置」必须是 `type="button"` + 点击监听，不能靠 `type="submit"` 触发表单提交。
 
 范围口径只有一份：`page/config.js`（浏览器）与 `src/retention.ts` 的 `normalizeConfig`（宿主/CLI/Agent 工具）都按 `keepDays 0–90`、`keepMax 1–72`；`bun test` 里有一条用例同时读 `page/index.html` 的 `min` / `max` 属性，防止两边再走偏。
 
