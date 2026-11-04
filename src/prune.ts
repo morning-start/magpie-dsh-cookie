@@ -240,9 +240,15 @@ export function pruneDatabase(options: PruneOptions): PruneOutcome {
   let reason: string | null = null;
   try {
     db = new Database(options.dbPath);
-    const remove = db.prepare('DELETE FROM cookies WHERE name = ? AND creation_utc = ?');
+    // 按 rowid 删，不按 creation_utc：Chromium 微秒时间戳超过 2^53，经过 JS 的 Number
+    // 会被四舍五入 ±1，`WHERE creation_utc = ?` 会一部分行匹配不上（删一半、复核失败、回滚）。
+    // name 一起带上只是多一道身份校验，防止 rowid 被复用后删错行。
+    const remove = db.prepare('DELETE FROM cookies WHERE rowid = ? AND name = ?');
     const tx = db.transaction(() => {
-      for (const row of plan.drop) remove.run(row.name, row.creationUtc);
+      for (const row of plan.drop) {
+        if (row.rowId < 0) throw new Error('cookie 行缺少 rowid，拒绝按名字+时间删除');
+        remove.run(row.rowId, row.name);
+      }
     });
     tx();
 
@@ -260,7 +266,7 @@ export function pruneDatabase(options: PruneOptions): PruneOutcome {
       else if (dshCount < 1) reason = '复核失败：一条 dsh-auth cookie 都没剩下';
       else {
         const missing = plan.drop.filter((row) => {
-          const hit = db?.query('SELECT 1 AS hit FROM cookies WHERE name = ? AND creation_utc = ?').get(row.name, row.creationUtc);
+          const hit = db?.query('SELECT 1 AS hit FROM cookies WHERE rowid = ?').get(row.rowId);
           return hit !== undefined && hit !== null;
         });
         if (missing.length > 0) reason = `复核失败：还有 ${missing.length} 条应删的行没删掉`;

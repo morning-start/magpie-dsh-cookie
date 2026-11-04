@@ -1,4 +1,4 @@
-import { describe, expect, test } from 'bun:test';
+﻿import { describe, expect, test } from 'bun:test';
 
 import { CHROME_EPOCH_MS } from '../src/jar.ts';
 import { cutoffUtcAt, normalizeConfig, planRetention } from '../src/retention.ts';
@@ -10,7 +10,7 @@ const NOW = Date.UTC(2026, 10, 1, 12, 0, 0); // 2026-11-01 12:00 UTC
 /** 由「多少天前」造一行 dsh cookie。 */
 function row(daysAgo: number, name = `d${daysAgo}`): JarRow {
   const ms = NOW - daysAgo * DAY_MS;
-  return { name: `dsh-auth-${name}`, host: '127.0.0.1', creationUtc: Math.round((ms + CHROME_EPOCH_MS) * 1000), valueLen: 173, encLen: 0 };
+  return { rowId: daysAgo + 1, name: `dsh-auth-${name}`, host: '127.0.0.1', creationUtc: Math.round((ms + CHROME_EPOCH_MS) * 1000), valueLen: 173, encLen: 0 };
 }
 
 describe('normalizeConfig', () => {
@@ -51,7 +51,7 @@ describe('planRetention', () => {
   });
 
   test('创建时间未知的行不删', () => {
-    const unknown: JarRow = { name: 'dsh-auth-unknown', host: '', creationUtc: 0, valueLen: 0, encLen: 0 };
+    const unknown: JarRow = { rowId: 99, name: 'dsh-auth-unknown', host: '', creationUtc: 0, valueLen: 0, encLen: 0 };
     const rows = [row(1, 'new'), unknown];
     const plan = planRetention(rows, { keepDays: 1, keepMax: 1 }, NOW);
     expect(plan.drop).toHaveLength(0);
@@ -59,7 +59,7 @@ describe('planRetention', () => {
   });
 
   test('非 dsh-auth 的 cookie 不参与', () => {
-    const other: JarRow = { name: 'session', host: 'example.com', creationUtc: 1, valueLen: 10, encLen: 0 };
+    const other: JarRow = { rowId: 98, name: 'session', host: 'example.com', creationUtc: 1, valueLen: 10, encLen: 0 };
     const plan = planRetention([other], { keepDays: 7, keepMax: 20 }, NOW);
     expect(plan.drop).toHaveLength(0);
     expect(plan.totalBefore).toBe(0);

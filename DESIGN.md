@@ -157,16 +157,21 @@ globalThis.DSH_COOKIE = {
 ```
 prune(dbPath, { keepDays, keepMax, dryRun }):
   1. 前置：库存在；DSH 未运行（Windows 看文件是否被独占，macOS/Linux 看进程表；运行中就拒绝/排队）
-  2. 读全量 → rows = SELECT name, creation_utc FROM cookies WHERE name LIKE 'dsh-auth-%' ORDER BY creation_utc DESC
+  2. 读全量 → rows = SELECT rowid, name, creation_utc FROM cookies
+     （rowid 是删除/复核用的精确身份；creation_utc 只用于展示与按天分组）
   3. cutoff = now - keepDays × 86400s
      drop = rows.filter(creation_utc < cutoff)          // 时间策略
      if rows.length - drop.length > keepMax:
          drop += 剩下的第 keepMax+1 条起（按创建时间从旧到新）   // 条数上限
      if drop 覆盖了最新一条 → 从 drop 里移除最新一条      // 永远留一条
   4. dryRun → 返回 { cutoff, remove, keep, removeBytes }
-  5. 备份 → BEGIN IMMEDIATE; DELETE FROM cookies WHERE name IN (…精确名单…); COMMIT
+  5. 备份 → BEGIN; DELETE FROM cookies WHERE rowid = ? AND name = ?; COMMIT
+     **不能按 creation_utc 删**：Chromium 微秒≈1.34e16 > 2^53，经过 JS Number 会把
+     奇数微秒四舍五入 ±1，`WHERE creation_utc = ?` 会有一部分行匹配不上（0.2.3 修的就是这个：
+     删 6 条只删掉 3 条 → 复核失败 → 回滚）
   6. PRAGMA integrity_check == 'ok'
-  7. 复核：剩余 dsh-auth 条数 == 预期；其它 cookie 条数前后一致；剩余 ≥ 1
+  7. 复核：剩余 dsh-auth 条数 == 预期；其它 cookie 条数前后一致；剩余 ≥ 1；
+     应删的 rowid 一条都不在
   8. 任一步失败 → 用备份覆盖回去，报错
 ```
 

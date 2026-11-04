@@ -21,9 +21,18 @@ const DSH_NAME_PATTERN = /dsh-auth-[A-Za-z0-9_-]{43}/g;
 
 /** 库里的一行 cookie（不取值，只取长度与创建时间）。 */
 export interface JarRow {
+  /**
+   * SQLite 的 `rowid`：这一行在本文件里的精确身份。
+   *
+   * 删除与复核**必须**按它定位，不能按 `creation_utc`：Chromium 的时间是「1601 起的微秒」，
+   * 2026 年约 1.34e16，超过 JS 能精确表示的整数上限（2^53 ≈ 9e15）。读成 Number 时
+   * 奇数微秒会被四舍五入 ±1，再拿去 `WHERE creation_utc = ?` 就永远匹配不上——
+   * 清理会「删一半、复核失败、回滚」（0.2.3 就是修这个）。`rowid` 是小整数，精确。
+   */
+  readonly rowId: number;
   readonly name: string;
   readonly host: string;
-  /** Chromium 微秒时间戳；0 表示不知道。 */
+  /** Chromium 微秒时间戳；0 表示不知道。只用于展示与按天分组，不用于删除定位。 */
   readonly creationUtc: number;
   readonly valueLen: number;
   readonly encLen: number;
@@ -69,6 +78,7 @@ export function isDshCookie(name: string): boolean {
 }
 
 interface RawRow {
+  row_id?: unknown;
   name?: unknown;
   host_key?: unknown;
   creation_utc?: unknown;
@@ -80,6 +90,7 @@ interface RawRow {
 function toRow(raw: RawRow): JarRow {
   const name = typeof raw.name === 'string' ? raw.name : '';
   return {
+    rowId: typeof raw.row_id === 'number' ? raw.row_id : -1,
     name,
     host: typeof raw.host_key === 'string' ? raw.host_key : '',
     creationUtc: typeof raw.creation_utc === 'number' ? raw.creation_utc : 0,
@@ -103,8 +114,8 @@ export function parseJarBytes(raw: Buffer): JarParse {
     const db = new Database(file, { readonly: true });
     try {
       const queries = [
-        'SELECT name, host_key, creation_utc, length(value) AS value_len, length(encrypted_value) AS enc_len FROM cookies',
-        'SELECT name, host_key, creation_utc FROM cookies',
+        'SELECT rowid AS row_id, name, host_key, creation_utc, length(value) AS value_len, length(encrypted_value) AS enc_len FROM cookies',
+        'SELECT rowid AS row_id, name, host_key, creation_utc FROM cookies',
       ];
       let lastError = '';
       for (const sql of queries) {
@@ -138,7 +149,7 @@ function fallbackRows(raw: Buffer): JarRow[] {
   const text = raw.toString('latin1');
   const names = new Set<string>();
   for (const match of text.matchAll(DSH_NAME_PATTERN)) names.add(match[0]);
-  return [...names].map((name) => ({ name, host: '', creationUtc: 0, valueLen: 0, encLen: 0 }));
+  return [...names].map((name) => ({ rowId: -1, name, host: '', creationUtc: 0, valueLen: 0, encLen: 0 }));
 }
 
 /**
