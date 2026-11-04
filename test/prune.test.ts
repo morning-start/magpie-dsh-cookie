@@ -102,7 +102,11 @@ describe('pruneDatabase', () => {
     try {
       const result = pruneDatabase({ dbPath: join(dir, 'missing'), backupDir: join(dir, 'backups'), config: CONFIG, dryRun: true, nowMs: NOW, running: () => false });
       expect(result.ok).toBe(false);
-      if (!result.ok) expect(result.reason).toContain('找不到 cookie 库');
+      if (!result.ok) {
+        expect(result.reason).toContain('找不到 cookie 库');
+        // 连库都没打开过：不能对用户说「已回滚」
+        expect(result.rolledBack).toBe(false);
+      }
     } finally {
       cleanup(dir);
     }
@@ -190,6 +194,35 @@ describe('backups', () => {
       cleanup(dir);
     }
   });
+
+  test('旁路文件（-journal / -wal）不算备份，裁份数时连带清掉', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'magpie-backup-sidecar-'));
+    try {
+      // 真备份：3 份
+      for (const name of ['Cookies-20260101-000000', 'Cookies-20260102-000000', 'Cookies-20260103-000000']) {
+        writeFileSync(join(dir, name), 'x');
+      }
+      // 备份时一起复制过来的旁路文件：0 字节，名字带后缀
+      writeFileSync(join(dir, 'Cookies-20260101-000000-journal'), '');
+      writeFileSync(join(dir, 'Cookies-20260103-000000-journal'), '');
+
+      // 页面上只该看到 3 份（以前会把 -journal 也算进去，显示成 5 份）
+      expect(listBackups(dir).map((item) => item.name)).toEqual([
+        'Cookies-20260103-000000',
+        'Cookies-20260102-000000',
+        'Cookies-20260101-000000',
+      ]);
+
+      trimBackups(dir, 2);
+      expect(listBackups(dir).map((item) => item.name)).toEqual(['Cookies-20260103-000000', 'Cookies-20260102-000000']);
+      // 被裁掉的那份，旁路文件一起清掉；留下的那份旁路还在
+      expect(existsSync(join(dir, 'Cookies-20260101-000000'))).toBe(false);
+      expect(existsSync(join(dir, 'Cookies-20260101-000000-journal'))).toBe(false);
+      expect(existsSync(join(dir, 'Cookies-20260103-000000-journal'))).toBe(true);
+    } finally {
+      cleanup(dir);
+    }
+  });
 });
 
 describe('跨平台运行判断', () => {
@@ -207,6 +240,7 @@ describe('跨平台运行判断', () => {
       if (!result.ok) {
         expect(result.locked).toBe(true);
         expect(result.reason).toContain('DSH 正在运行');
+        expect(result.rolledBack).toBe(false);
       }
       expect(readFileSync(dbPath).equals(before)).toBe(true);
       expect(listBackups(backupDir)).toHaveLength(0);

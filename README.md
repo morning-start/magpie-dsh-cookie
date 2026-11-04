@@ -161,6 +161,8 @@ DSH 的 cookie 库（桌面版 Electron userData 目录，已对照 deepseek-har
 | 「DSH 正在运行」无法清理 | 正常护栏：完全退出 DSH（Windows 托盘退出；macOS/Linux 退出应用），或等排队自动执行 |
 | 「DB 有未完成的日志，恢复失败」 | 上次异常退出的热日志；先启动一次 DSH 让它自愈，再回来清理 |
 | 清理失败并提示已回滚 | 0.2.3 之前有个已知问题：`creation_utc` 是超过 2^53 的微秒时间戳，按它删除会漏掉一半行（「复核失败：剩余 N 条，预期 M 条」）。0.2.3 改成按 `rowid` 删除/复核 |
+| 「最近一次清理」显示「失败，已回滚」 | 真的写过库：删完复核不过，已用备份把库覆盖回去（库是清理前的样子，可以重试）。显示「失败，未写库」则是根本没动库（库找不到 / 被独占 / 备份失败），两种都不需要手动恢复 |
+| 「可用备份 N 份」和 `backups/` 里的文件数对不上 | 0.2.4 之前把 `Cookies-…-journal` 这类旁路文件也算成备份了（还会让真备份被提前裁掉）。0.2.4 只认 `Cookies-YYYYMMDD-HHmmss` |
 | 插件页没出现 | `magpie plugin list` 看有没有加载错误；把插件关一下再开或重启 magpie |
 | 保留策略「改了又变回 7 天 / 40 条」或「保存设置点了没反应」 | 0.2.2 之前的老问题，两个原因：① magpie 沙箱（`sandbox="allow-scripts"`，无 `allow-forms`）会拦掉表单提交，`type="submit"` 的保存按钮点了根本没反应；② 保存期间页面被旧快照覆盖回默认值。升级到 0.2.2 两个都修了：保存按钮改 `type="button"` 走点击监听，有未保存的修改时输入框不再被轮询覆盖 |
 | 页面显示「数据可能过期」 | magpie 长时间没探测；点「重新探测」，或确认 magpie 还在运行 |
@@ -197,7 +199,7 @@ src/service.ts        编排：缓存、页面动作、排队、20 秒巡检
 src/cli.ts            离线命令行
 page/                 沙箱页面（无网络，靠 data.js + options 请求）
 page/config.js        保留策略表单的解析与校验（与 src/retention.ts 同一口径，bun test 也读它）
-test/                 bun test（68 条）
+test/                 bun test（77 条）
 ```
 
 设计细节与取舍见 [DESIGN.md](DESIGN.md)，版本变化见 [CHANGELOG.md](CHANGELOG.md)。

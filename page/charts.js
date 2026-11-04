@@ -15,11 +15,16 @@
   /**
    * @param {HTMLElement} host 图表容器
    * @param {Array<{key:string,short:string,label:string,count:number,today:boolean}>} points
-   * @param {{values?: "all"|"auto"|"none", empty?: string}} [opts]
+   * @param {{values?: "all"|"auto"|"none", empty?: string, endLabel?: string}} [opts]
    */
   function render(host, points, opts) {
     if (!host) return;
     opts = opts || {};
+    // 每次数据变化都会整体替换柱子。键盘用户可能正停在某根柱子上，
+    // 先把「焦点在哪根」记下来，画完再还回去，别让人被弹回 body。
+    var active = document.activeElement;
+    var focusKey = active && active !== host && host.contains(active) && active.dataset ? active.dataset.key : null;
+
     var list = Array.isArray(points) ? points.filter(function (p) { return p && p.key; }) : [];
     if (!list.length) {
       host.replaceChildren(text("p", "chart-empty", opts.empty || "还没有数据"));
@@ -39,6 +44,7 @@
     bars.style.setProperty("--n", String(list.length));
 
     var frag = document.createDocumentFragment();
+    var barNodes = [];
     list.forEach(function (p) {
       var count = Number(p.count) || 0;
       var cell = document.createElement("div");
@@ -53,6 +59,7 @@
       bar.setAttribute("aria-pressed", "false");
       bar.setAttribute("aria-label", (p.label || p.key) + "，" + count + " 条");
       bar.style.setProperty("--h", (count / max).toFixed(4));
+      barNodes.push(bar);
 
       bar.append(text("span", "bar-fill"));
       if (count > 0) {
@@ -69,9 +76,19 @@
     var axis = document.createElement("div");
     axis.className = "axis";
     axis.append(text("span", "", list[0].short || list[0].key));
-    axis.append(text("span", "now", "今天"));
+    // 右端不一定是「今天」：历史趋势的最后一条是最近一次快照，可能停在几天前。
+    axis.append(text("span", "now", opts.endLabel || "今天"));
 
     host.replaceChildren(bars, axis);
+
+    if (focusKey) {
+      for (var index = 0; index < barNodes.length; index++) {
+        if (barNodes[index].dataset.key === focusKey) {
+          barNodes[index].focus();
+          break;
+        }
+      }
+    }
   }
 
   globalThis.DSHCharts = { render: render };

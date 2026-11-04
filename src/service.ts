@@ -264,6 +264,7 @@ export class CookieService {
           backup: null,
           error: maskText(message),
           cutoff: null,
+          rolledBack: false,
         };
         // 异常（不是「库被锁」）不再重试，避免每 20 秒撞同一个错；结果写进看板。
         await this.store.update((state) => ({ ...state, lastPrune, pending: null }));
@@ -280,6 +281,7 @@ export class CookieService {
         backup: outcome.ok ? outcome.backup : null,
         error: outcome.ok ? null : outcome.reason,
         cutoff: outcome.ok ? outcome.cutoff : null,
+        rolledBack: outcome.ok ? false : outcome.rolledBack,
       };
       await this.store.update((state) => ({ ...state, lastPrune, pending: null, preview: null }));
       this.log(outcome.ok ? 'info' : 'error', outcome.ok ? `排队清理完成：删除 ${outcome.removed} 条` : `排队清理失败：${outcome.reason}`);
@@ -371,7 +373,20 @@ export class CookieService {
         keep: plan.keep.length,
         removeBytes: plan.droppedBytes,
       };
-      await this.store.update((state) => ({ ...state, preview }));
+      // 预演也记一条「最近一次清理」（dryRun: true）。看板上「预演」这个标记、
+      // 以及「预演或执行之后结果会留在这里」这句话，都得有这条记录才对得上。
+      const lastPrune = {
+        at: preview.at,
+        ok: true,
+        dryRun: true,
+        removed: 0,
+        remaining: plan.keep.length,
+        backup: null,
+        error: null,
+        cutoff: preview.cutoff,
+        rolledBack: false,
+      };
+      await this.store.update((state) => ({ ...state, preview, lastPrune }));
       this.emit();
       const message =
         plan.drop.length === 0
@@ -454,6 +469,7 @@ export class CookieService {
       backup: outcome.ok ? outcome.backup : null,
       error: outcome.ok ? null : outcome.reason,
       cutoff: outcome.ok ? outcome.cutoff : null,
+      rolledBack: outcome.ok ? false : outcome.rolledBack,
     };
     await this.store.update((state) => ({ ...state, lastPrune, preview: outcome.ok ? null : state.preview }));
     await this.refreshNow(true);

@@ -50,7 +50,19 @@ export type PruneOutcome =
       readonly elapsedMs: number;
       readonly plan: RetentionPlan;
     }
-  | { readonly ok: false; readonly reason: string; readonly locked: boolean; readonly plan?: RetentionPlan };
+  | {
+      readonly ok: false;
+      readonly reason: string;
+      readonly locked: boolean;
+      /**
+       * 这次失败**有没有真的写过库**。
+       *
+       * 大部分失败（库找不到、被锁、读不出来、备份失败、写库前 DSH 又启动了）根本没走到写库，
+       * 说「已回滚」是错的；只有删除后复核不过、真把备份覆盖回去那两次才是回滚。
+       */
+      readonly rolledBack: boolean;
+      readonly plan?: RetentionPlan;
+    };
 
 /** 备份目录里的一份备份。 */
 export interface BackupInfo {
@@ -59,30 +71,49 @@ export interface BackupInfo {
   readonly size: number;
 }
 
+/**
+ * 备份文件名：`Cookies-YYYYMMDD-HHmmss`。
+ *
+ * 备份时会把库的旁路文件（`-journal` / `-wal` / `-shm`）一起复制成
+ * `Cookies-…-journal` 这种名字。它们**不是**备份：以前只按 `Cookies-` 前缀过滤，
+ * 结果页面上把 0 字节的旁路文件当成备份（「可用备份 6 份」其实只有 4 份），
+ * 而且 `trimBackups` 按份数裁时它们也占名额——真正的备份会被提前删掉。
+ */
+const BACKUP_NAME_PATTERN = /^Cookies-(\d{4})(\d{2})(\d{2})-(\d{2})(\d{2})(\d{2})$/;
+
+/** 备份时一起复制的旁路文件后缀；删备份时连带清掉，不留孤儿。 */
+const SIDECAR_SUFFIXES = ['-journal', '-wal', '-shm'] as const;
+
 /** 备份文件名的本地时间戳。 */
 function stamp(now: Date): string {
   const pad = (n: number): string => String(n).padStart(2, '0');
   return `Cookies-${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
 }
 
-/** 列出备份（新到旧）。 */
+/** 列出备份（新到旧）；旁路文件不算备份。 */
 export function listBackups(dir: string): BackupInfo[] {
   let names: string[];
   try {
-    names = readdirSync(dir).filter((name) => name.startsWith('Cookies-'));
+    names = readdirSync(dir).filter((name) => BACKUP_NAME_PATTERN.test(name));
   } catch {
     return [];
   }
   const out: BackupInfo[] = [];
   for (const name of names) {
+    const match = BACKUP_NAME_PATTERN.exec(name);
+    if (match === null) continue;
     try {
       const stat = statSync(join(dir, name));
       if (!stat.isFile()) continue;
       // 文件名形如 Cookies-YYYYMMDD-HHmmss
-      const match = /^Cookies-(\d{4})(\d{2})(\d{2})-(\d{2})(\d{2})(\d{2})$/.exec(name);
-      const at = match
-        ? new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]), Number(match[4]), Number(match[5]), Number(match[6])).toISOString()
-        : stat.mtime.toISOString();
+      const at = new Date(
+        Number(match[1]),
+        Number(match[2]) - 1,
+        Number(match[3]),
+        Number(match[4]),
+        Number(match[5]),
+        Number(match[6]),
+      ).toISOString();
       out.push({ name, at, size: stat.size });
     } catch {
       // 单个文件读不到就跳过
@@ -91,14 +122,16 @@ export function listBackups(dir: string): BackupInfo[] {
   return out.sort((a, b) => (a.name < b.name ? 1 : a.name > b.name ? -1 : 0));
 }
 
-/** 只留最近 keep 份备份。 */
+/** 只留最近 keep 份备份（连带删掉它们的旁路文件）。 */
 export function trimBackups(dir: string, keep: number): void {
   const all = listBackups(dir);
   for (const item of all.slice(Math.max(0, keep))) {
-    try {
-      rmSync(join(dir, item.name), { force: true });
-    } catch {
-      // 删不掉旧备份不影响本次清理
+    for (const suffix of ['', ...SIDECAR_SUFFIXES]) {
+      try {
+        rmSync(join(dir, `${item.name}${suffix}`), { force: true });
+      } catch {
+        // 删不掉旧备份不影响本次清理
+      }
     }
   }
 }
@@ -170,17 +203,22 @@ export function pruneDatabase(options: PruneOptions): PruneOutcome {
   const startedAt = Date.now();
   const nowMs = options.nowMs ?? startedAt;
   const lock = fileLockState(options.dbPath);
-  if (lock === 'missing') return { ok: false, reason: `找不到 cookie 库：${prettyPath(options.dbPath)}`, locked: false };
+  if (lock === 'missing') return { ok: false, reason: `找不到 cookie 库：${prettyPath(options.dbPath)}`, locked: false, rolledBack: false };
   if (lock === 'locked' || runningNow(options)) {
-    return { ok: false, reason: 'DSH 正在运行，cookie 库还在使用中。请完全退出 DSH（Windows 从托盘退出；macOS/Linux 退出应用）再清理', locked: true };
+    return {
+      ok: false,
+      reason: 'DSH 正在运行，cookie 库还在使用中。请完全退出 DSH（Windows 从托盘退出；macOS/Linux 退出应用）再清理',
+      locked: true,
+      rolledBack: false,
+    };
   }
 
   const recovered = recoverHotStore(options.dbPath);
-  if (!recovered.ok) return { ok: false, reason: recovered.reason, locked: false };
+  if (!recovered.ok) return { ok: false, reason: recovered.reason, locked: false, rolledBack: false };
 
   const read = readRows(options.dbPath);
-  if (!read.ok) return { ok: false, reason: read.reason, locked: read.locked };
-  if (!read.datesKnown) return { ok: false, reason: 'cookie 库快照损坏，创建时间不可用，不能安全清理', locked: false };
+  if (!read.ok) return { ok: false, reason: read.reason, locked: read.locked, rolledBack: false };
+  if (!read.datesKnown) return { ok: false, reason: 'cookie 库快照损坏，创建时间不可用，不能安全清理', locked: false, rolledBack: false };
 
   const plan = planRetention(read.rows, options.config, nowMs);
   const before = summarize(read.rows);
@@ -219,7 +257,7 @@ export function pruneDatabase(options: PruneOptions): PruneOutcome {
 
   // 删之前再确认一次库没被重新打开（DSH 可能刚启动）。
   if (fileLockState(options.dbPath) === 'locked' || runningNow(options, true)) {
-    return { ok: false, reason: 'DSH 在清理前启动了，本次不写库', locked: true, plan };
+    return { ok: false, reason: 'DSH 在清理前启动了，本次不写库', locked: true, rolledBack: false, plan };
   }
 
   mkdirSync(options.backupDir, { recursive: true });
@@ -233,7 +271,7 @@ export function pruneDatabase(options: PruneOptions): PruneOutcome {
     }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    return { ok: false, reason: `备份失败，未写库：${maskText(message)}`, locked: false, plan };
+    return { ok: false, reason: `备份失败，未写库：${maskText(message)}`, locked: false, rolledBack: false, plan };
   }
 
   let db: Database | undefined;
@@ -295,10 +333,16 @@ export function pruneDatabase(options: PruneOptions): PruneOutcome {
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      return { ok: false, reason: `${maskText(reason)}；回滚也失败：${maskText(message)}（备份在 ${prettyPath(backupPath)}）`, locked: false, plan };
+      return {
+        ok: false,
+        reason: `${maskText(reason)}；回滚也失败：${maskText(message)}（备份在 ${prettyPath(backupPath)}）`,
+        locked: false,
+        rolledBack: true,
+        plan,
+      };
     }
     trimBackups(options.backupDir, (options.keepBackups ?? 10) - 1);
-    return { ok: false, reason: `${maskText(reason)}（已从备份回滚，备份在 ${prettyPath(backupPath)}）`, locked: false, plan };
+    return { ok: false, reason: `${maskText(reason)}（已从备份回滚，备份在 ${prettyPath(backupPath)}）`, locked: false, rolledBack: true, plan };
   }
 
   trimBackups(options.backupDir, options.keepBackups ?? 10);

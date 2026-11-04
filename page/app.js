@@ -311,13 +311,20 @@
     });
   }
 
+  /** 每张图的读数控制器：柱子每次重画都会被整体替换，钉住的那根得能撤销。 */
+  var READOUTS = {};
+
   function drawChart(which, points, opts) {
     var host = el(which + "-chart");
     if (!host) return;
-    var sig = points.map(function (p) { return p.key + ":" + p.count; }).join(",") + "|" + (opts && opts.empty ? opts.empty : "");
+    var sig = points.map(function (p) { return p.key + ":" + p.count; }).join(",") + "|" +
+      (opts && opts.empty ? opts.empty : "") + "|" + (opts && opts.endLabel ? opts.endLabel : "");
     var cacheKey = which === "days" ? "daySig" : "histSig";
     if (state[cacheKey] === sig) return;
     state[cacheKey] = sig;
+    // 马上要 replaceChildren：先把钉住的柱子撤销，否则读数会一直停在旧日期上。
+    var readout = READOUTS[which];
+    if (readout) readout.reset();
     if (globalThis.DSHCharts && typeof globalThis.DSHCharts.render === "function") {
       globalThis.DSHCharts.render(host, points, opts);
     }
@@ -377,14 +384,17 @@
       var first = points[0];
       var last = points[points.length - 1];
       var delta = last.count - first.count;
-      note = "最新 " + last.short + " · " + fmtInt(last.count) + " 条；比 " + (points.length - 1) + " 天前的 " + fmtInt(first.count) + " 条";
+      // 快照可能中间断过（插件没开着的那几天），不能拿「条数 - 1」当天数。
+      var spanDays = Math.round((Date.parse(last.key) - Date.parse(first.key)) / 86400000);
+      var spanText = Number.isFinite(spanDays) && spanDays > 0 ? spanDays + " 天前的 " : "更早的 ";
+      note = "最新 " + last.short + " · " + fmtInt(last.count) + " 条；比 " + spanText + fmtInt(first.count) + " 条";
       note += delta === 0 ? "持平。" : delta > 0 ? "多了 " + fmtInt(delta) + " 条。" : "少了 " + fmtInt(-delta) + " 条。";
     }
-    drawChart("hist", failed ? [] : points, { values: "auto", empty: emptyText });
+    drawChart("hist", failed ? [] : points, { values: "auto", empty: emptyText, endLabel: points.length ? points[points.length - 1].short : "今天" });
     setText("hist-note", note);
   }
 
-  function wireReadout(chart, readout) {
+  function wireReadout(which, chart, readout) {
     if (!chart || !readout) return;
     var idleText = readout.textContent;
     var pinned = null;
@@ -401,6 +411,13 @@
     function barOf(node) {
       return node && node.closest ? node.closest(".bar") : null;
     }
+    /** 柱子被整体重画时用：钉住的那个节点已经不在了，撤销它。 */
+    function resetPin() {
+      if (pinned) pinned.setAttribute("aria-pressed", "false");
+      pinned = null;
+      idle();
+    }
+    READOUTS[which] = { reset: resetPin };
 
     chart.addEventListener("pointerover", function (e) { show(barOf(e.target)); });
     chart.addEventListener("pointerleave", function () { if (pinned) show(pinned); else idle(); });
@@ -522,7 +539,9 @@
     } else if (saved) {
       text = "已保存：保留最近 " + fmtInt(saved.keepDays) + " 天 / 最多 " + fmtInt(saved.keepMax) + " 条；最新一条永远保留。";
     } else {
-      text = "还没读到已保存的策略；先按 7 天 / 40 条显示，点「保存设置」会写进插件。";
+      // 还没读到快照时不要给出「7 天 / 40 条」这种看起来像「已保存」的说法：
+      // 用户会把内置默认值当成「默认值固定了、改不了」。
+      text = "正在读取已保存的保留策略…（读到之前框里是内置默认值；点「保存设置」以你填的为准）";
     }
 
     var box = el("keep-state");
@@ -611,14 +630,22 @@
       setText("pending-text", "");
     }
 
+    // count 为 null 说明还没读到库（探测失败 / 正在读）。这种时候「执行清理」是写库动作，
+    // 不能让人点——以前只挡 count === 0，读不到库时按钮反而亮着，点了就是一次真的写库请求。
+    var unknown = count === null;
+    var blocked = unknown || count === 0;
     var prune = el("prune-btn");
     if (prune) {
-      prune.textContent = count === 0 ? "没有可清理的" : running ? "DSH 退出后自动清理" : "执行清理";
-      prune.title = running ? "DSH 运行中不能写库：点它会排队，等 DSH 退出后执行" : "清理前自动备份，失败自动回滚";
-      prune.dataset.wantDisabled = count === 0 ? "1" : "0";
+      prune.textContent = unknown ? "先读取库" : count === 0 ? "没有可清理的" : running ? "DSH 退出后自动清理" : "执行清理";
+      prune.title = unknown
+        ? "还没读到 cookie 库，先点右上角「重新探测」"
+        : running
+          ? "DSH 运行中不能写库：点它会排队，等 DSH 退出后执行"
+          : "清理前自动备份，失败自动回滚";
+      prune.dataset.wantDisabled = blocked ? "1" : "0";
     }
     var plan = el("plan-btn");
-    if (plan) plan.dataset.wantDisabled = count === 0 ? "1" : "0";
+    if (plan) plan.dataset.wantDisabled = blocked ? "1" : "0";
 
     var fine = el("prune-fine");
     if (fine) {
@@ -668,13 +695,25 @@
     setText("result-hint", lp.at ? whenText(lp.at) : "");
 
     var badge = el("res-status");
+    var failed = lp.ok === false;
     if (badge) {
-      if (lp.ok === false) { badge.textContent = "失败，已回滚"; badge.dataset.tone = "bad"; }
-      else if (lp.dryRun) { badge.textContent = "预演"; badge.dataset.tone = "soft"; }
-      else { badge.textContent = "成功"; badge.dataset.tone = "ok"; }
+      if (failed) {
+        // 只有「写完复核不过、把备份覆盖回去」才叫回滚；库找不到 / 被锁 / 备份失败
+        // 这些根本没写库，说「已回滚」会让人以为库被动过。
+        badge.textContent = lp.rolledBack === true ? "失败，已回滚" : "失败，未写库";
+        badge.dataset.tone = "bad";
+      } else if (lp.dryRun) {
+        badge.textContent = "预演";
+        badge.dataset.tone = "soft";
+      } else {
+        badge.textContent = "成功";
+        badge.dataset.tone = "ok";
+      }
     }
-    setText("res-removed", has(lp.removed) ? fmtInt(lp.removed) + " 条" : "—");
-    setText("res-remaining", has(lp.remaining) ? fmtInt(lp.remaining) + " 条" : "—");
+    // 失败与预演都什么都没删：显示「—」而不是「0 条」，否则看板上像「把库清空了」。
+    var nothingRemoved = failed || lp.dryRun === true;
+    setText("res-removed", !nothingRemoved && has(lp.removed) ? fmtInt(lp.removed) + " 条" : "—");
+    setText("res-remaining", !failed && has(lp.remaining) ? fmtInt(lp.remaining) + " 条" : "—");
     setText("res-backup", lp.backup || "—");
 
     var row = el("res-error-row");
@@ -833,13 +872,14 @@
 
   function render() {
     var view = state.view;
+    // 先消化回报：快照里可能已经有回报了（插件重启慢，回报常常和超时卡在同一拍），
+    // 先处理就不会被 checkBusyTimeout 抢先清掉 pendingId 而丢掉这条成功回报。
+    handleReply(view);
     checkBusyTimeout();
     renderChips(view);
     renderGauge(view);
     renderDays(view);
     renderHistory(view);
-    // 先消化回报（会解除「未保存」），再画表单，输入框才不会慢一拍
-    handleReply(view);
     renderConfig(view);
     renderPrune(view);
     renderResult(view);
@@ -901,8 +941,8 @@
     var undo = el("keep-undo");
     if (undo) undo.addEventListener("click", restoreConfig);
 
-    wireReadout(el("days-chart"), el("days-readout"));
-    wireReadout(el("hist-chart"), el("hist-readout"));
+    wireReadout("days", el("days-chart"), el("days-readout"));
+    wireReadout("hist", el("hist-chart"), el("hist-readout"));
   }
 
   function init() {

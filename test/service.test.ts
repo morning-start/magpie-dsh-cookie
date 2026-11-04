@@ -75,6 +75,11 @@ describe('CookieService', () => {
       const planned = await fx.service.plan({ keepDays: 7, keepMax: 72 });
       expect(planned.ok).toBe(true);
       expect(planned.message).toContain('将删除 1 条');
+      // 预演也要留一条「最近一次清理（预演）」，看板上的「预演」标记才有来源。
+      const afterPlan = JSON.parse(readFileSync(join(fx.dataDir, 'state.json'), 'utf8'));
+      expect(afterPlan.lastPrune.dryRun).toBe(true);
+      expect(afterPlan.lastPrune.ok).toBe(true);
+      expect(afterPlan.lastPrune.remaining).toBe(1);
 
       const pruned = await fx.service.pruneNow({ requestedBy: 'cli', config: { keepDays: 7, keepMax: 72 } });
       expect(pruned.ok).toBe(true);
@@ -116,8 +121,26 @@ describe('CookieService', () => {
     }
   });
 
-  test('读不到库时页面拿到 error 与原因，不给假数字', async () => {
+  test('清理失败时记 rolledBack=false：没写库就不能说「已回滚」', async () => {
     const root = mkdtempSync(join(tmpdir(), 'magpie-cookie-service-'));
+    try {
+      const pluginRoot = join(root, 'plugin');
+      mkdirSync(join(pluginRoot, 'page'), { recursive: true });
+      const dataDir = join(root, 'data');
+      const env = { ...process.env, MAGPIE_DSH_COOKIE_DB: join(root, 'missing'), MAGPIE_DSH_COOKIE_DATA: dataDir };
+      const service = new CookieService({ directory: join(root, 'config'), pluginRoot, env, running: () => false });
+      const result = await service.pruneNow({ requestedBy: 'cli' });
+      expect(result.ok).toBe(false);
+      const state = JSON.parse(readFileSync(join(dataDir, 'state.json'), 'utf8'));
+      expect(state.lastPrune.ok).toBe(false);
+      expect(state.lastPrune.rolledBack).toBe(false);
+      expect(String(state.lastPrune.error)).toContain('找不到 cookie 库');
+    } finally {
+      cleanup(root);
+    }
+  });
+
+  test('读不到库时页面拿到 error 与原因，不给假数字', async () => {    const root = mkdtempSync(join(tmpdir(), 'magpie-cookie-service-'));
     try {
       const pluginRoot = join(root, 'plugin');
       mkdirSync(join(pluginRoot, 'page'), { recursive: true });

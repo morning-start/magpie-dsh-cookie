@@ -38,6 +38,8 @@ export interface LastPrune {
   readonly backup: string | null;
   readonly error: string | null;
   readonly cutoff: string | null;
+  /** 失败时有没有真的写过库：只有「写完复核不过、把备份覆盖回去」才是回滚。 */
+  readonly rolledBack: boolean;
 }
 
 /** 页面动作的回应。 */
@@ -132,6 +134,8 @@ export function parseState(text: string): StoredState {
           backup: typeof pruneRaw.backup === 'string' ? pruneRaw.backup : null,
           error: typeof pruneRaw.error === 'string' ? pruneRaw.error : null,
           cutoff: typeof pruneRaw.cutoff === 'string' ? pruneRaw.cutoff : null,
+          // 旧版本的状态文件没有这个字段：缺省按「没写库」处理，不会误报「已回滚」。
+          rolledBack: pruneRaw.rolledBack === true,
         }
       : null;
 

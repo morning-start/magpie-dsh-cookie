@@ -61,7 +61,7 @@ DSH 运行期间 `Network/Cookies` 由 Chromium 掌管：Windows 上是**独占�
 | 预演 | 只算不删：显示 cutoff 时间、将删几条、留几条、释放多少请求头字节 |
 | 执行 | DSH **未运行**时：备份 → 事务删除 → `integrity_check` → 复核（条数、非 DSH cookie 未变、至少剩 1 条）→ 失败自动从备份回滚 |
 | 退出后自动清理 | DSH 运行中点「清理」不硬来，而是**排队**；插件每 20 秒检查一次，DSH 一退出就自动执行，结果回写看板 |
-| 备份管理 | 每次写库前把 `Cookies` 复制到 `~/.config/magpie/dsh-cookie/backups/`，保留最近 10 份 |
+| 备份管理 | 每次写库前把 `Cookies` 复制到 `~/.config/magpie/dsh-cookie/backups/`，保留最近 10 份；复制时连同 `-journal` / `-wal` / `-shm` 旁路文件一起带上，但**列表与按份数裁剪只认 `Cookies-YYYYMMDD-HHmmss`**——旁路文件不是备份，算进去会让页面份数虚高、还会让真备份被提前裁掉（0.2.4 修） |
 
 ### 3.3 用
 
@@ -124,7 +124,7 @@ globalThis.DSH_COOKIE = {
   config: { keepDays: 7, keepMax: 40 },
   preview: null | { at, cutoff, remove, keep, removeBytes },
   pending: null | { at, keepDays, keepMax, requestedBy },
-  lastPrune: null | { at, ok, dryRun, removed, remaining, backup, error },
+  lastPrune: null | { at, ok, dryRun, removed, remaining, backup, error, cutoff, rolledBack },
   reply: null | { id, action, ok, message, at },
   backups: [{ name, at, size }],
   readError: null | "…",
@@ -151,6 +151,13 @@ globalThis.DSH_COOKIE = {
 保存的闭环是：`options.set({...options, request})` → magpie 重启插件 → 插件 `setConfig()` 落 `state.json` → 重写 `data.js`（新的 `config` + `reply`）→ 页面看到 `reply.id` 对上才解除 dirty 并按快照对齐。**在 `reply` 到之前，任何一方都不该把旧 `config` 当成"用户想要的"**——这正是之前出问题的地方：插件重启要 4–8 秒，页面在这段时间里把旧配置写回输入框，用户看到的就是"改完又变回 7 天 / 40 条"。另外沙箱拦表单提交（没有 `allow-forms`），「保存设置」必须是 `type="button"` + 点击监听，不能靠 `type="submit"` 触发表单提交。
 
 范围口径只有一份：`page/config.js`（浏览器）与 `src/retention.ts` 的 `normalizeConfig`（宿主/CLI/Agent 工具）都按 `keepDays 0–90`、`keepMax 1–72`；`bun test` 里有一条用例同时读 `page/index.html` 的 `min` / `max` 属性，防止两边再走偏。
+
+另外两条同源的硬规矩（0.2.4 补，都在 `test/page-app.test.ts` 里钉住）：
+
+| 规矩 | 为什么 |
+| --- | --- |
+| `render()` 里**先** `handleReply(view)`、**后** `checkBusyTimeout()` | 插件重启慢时，成功回报可能与 25 秒超时落在同一拍；先判超时会清掉 `pendingId`，随后的成功回报因为 id 对不上被丢弃，配置卡片就永远停在「有未保存的修改」 |
+| 快照里 `count === null`（还没读到库）时，「预演清理」「执行清理」必须禁用 | 这两个按钮都会写库/排队；只挡 `count === 0` 时，探测失败的页面反而能点出一次真的写库请求 |
 
 ## 6. 清理算法（写库那一步）
 
@@ -232,6 +239,7 @@ magpie-dsh-cookie/
 - **真机拒绝**：DSH 运行中 `cli prune` 明确报「DSH 正在运行：请先完全退出」，不写库。
 - **写库安全**：在合成库上验证「只删过期 dsh-auth / 非 DSH 一条不删 / 备份落盘 / integrity_check / 条数复核」；损坏库拒绝清理；删除异常时从备份回滚。
 - **页面**：380 / 700 / 1000 / 1200 四种宽度无横向溢出、无 NaN/undefined 文案；真实快照（history 1 条、days 2 天、preview/pending/lastPrune 为 null）与 7 种演示状态截图见 `screenshots/`。
+- **0.2.4**：`bun test` **77 通过 / 0 失败**（11 个文件）；`magpie-bun src/cli.ts backups` 对真实备份目录输出 **4 份**（修复前把两个 0 字节 `-journal` 也算成备份，显示 6 份）；无头 Chrome 按真实快照渲染 `page/index.html?real=1` 核对：保留策略「已保存：保留最近 7 天 / 最多 30 条」、失败徽标「失败，未写库」、删除/剩余「—」、两张柱图与坐标轴（`10-07 → 今天`、`11-01 → 11-05`）均正常。
 
 
 ## 10. 已知边界与后续
